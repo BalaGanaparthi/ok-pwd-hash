@@ -20,6 +20,10 @@ import string
 import hashlib
 import base64
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def generate_random_password(length: int = 16) -> str:

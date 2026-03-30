@@ -16,24 +16,42 @@ A Python tool that creates Okta users with hashed passwords and validates authen
 - Okta developer account with API token
 - API token must have user management permissions
 
-## Environment Variables
+## Configuration
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `OKTA_DOMAIN` | Your Okta domain | `dev-123456.okta.com` |
-| `OKTA_API_TOKEN` | Okta API token with user management permissions | `00abc123...` |
+### Using .env File (Recommended)
+
+Create a `.env` file in the project directory with your Okta credentials:
+
+```bash
+# Okta Configuration
+OKTA_DOMAIN=your-domain.okta.com
+OKTA_API_TOKEN=your-api-token-here
+```
+
+### Environment Variables
+
+| Variable         | Description                                     | Example               |
+| ---------------- | ----------------------------------------------- | --------------------- |
+| `OKTA_DOMAIN`    | Your Okta domain                                | `dev-123456.okta.com` |
+| `OKTA_API_TOKEN` | Okta API token with user management permissions | `00abc123...`         |
 
 ## Usage
 
 ### Option 1: Run with Docker
 
 ```bash
-# Build the Docker image
+# Build the Docker image (uses .env file)
 docker build -t okta-password-hash .
 
 # Run the container
+docker run -it okta-password-hash
+```
+
+Or override .env with environment variables:
+
+```bash
 docker run -it \
-  -e OKTA_DOMAIN="dev-123456.okta.com" \
+  -e OKTA_DOMAIN="your-domain.okta.com" \
   -e OKTA_API_TOKEN="your-api-token" \
   okta-password-hash
 ```
@@ -44,9 +62,8 @@ docker run -it \
 # Install dependencies
 pip install -r requirements.txt
 
-# Set environment variables
-export OKTA_DOMAIN="dev-123456.okta.com"
-export OKTA_API_TOKEN="your-api-token"
+# Configure .env file (edit with your credentials)
+# The .env file will be loaded automatically
 
 # Run the script
 python okta_password_hash.py
@@ -125,6 +142,7 @@ User created and authenticated successfully!
 3. **Hashing**: Combines password + salt (POSTFIX order) and hashes with the selected algorithm
 
 4. **User Creation**: Calls Okta Management API `POST /api/v1/users` with the hash:
+
    ```json
    {
      "credentials": {
@@ -144,11 +162,11 @@ User created and authenticated successfully!
 
 ## Supported Algorithms
 
-| Algorithm | Hash Length | Security Level |
-|-----------|-------------|----------------|
-| SHA-1 | 160 bits | Legacy (not recommended) |
-| SHA-256 | 256 bits | Recommended |
-| SHA-512 | 512 bits | Highest security |
+| Algorithm | Hash Length | Security Level           |
+| --------- | ----------- | ------------------------ |
+| SHA-1     | 160 bits    | Legacy (not recommended) |
+| SHA-256   | 256 bits    | Recommended              |
+| SHA-512   | 512 bits    | Highest security         |
 
 ## API References
 
@@ -158,9 +176,9 @@ User created and authenticated successfully!
 
 ## Troubleshooting
 
-| Error | Cause | Solution |
-|-------|-------|----------|
-| `401 Unauthorized` | Invalid API token | Check `OKTA_API_TOKEN` is correct |
-| `403 Forbidden` | Insufficient permissions | Ensure token has user management scope |
-| `400 Bad Request` | User already exists | Use a different username |
-| `Authentication failed` | Hash mismatch | Verify salt order is POSTFIX |
+| Error                   | Cause                    | Solution                               |
+| ----------------------- | ------------------------ | -------------------------------------- |
+| `401 Unauthorized`      | Invalid API token        | Check `OKTA_API_TOKEN` is correct      |
+| `403 Forbidden`         | Insufficient permissions | Ensure token has user management scope |
+| `400 Bad Request`       | User already exists      | Use a different username               |
+| `Authentication failed` | Hash mismatch            | Verify salt order is POSTFIX           |
