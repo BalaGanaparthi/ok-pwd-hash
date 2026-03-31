@@ -4,14 +4,16 @@ Okta SHA-1 User Management and Authentication
 
 This script:
 1. Deletes users if they already exist in Okta
-2. Creates users with SHA-1 hashed passwords
+2. Creates users with SHA-1 hashed passwords (with or without salt)
 3. Authenticates users via /authn with clear text password
 
 Required environment variables in .env:
 - OKTA_DOMAIN: Your Okta domain
 - OKTA_API_TOKEN: Your Okta API token
-- USER1_USERNAME, USER1_PASSWORD, USER1_HASH, USER1_SALT, USER1_FIRSTNAME, USER1_LASTNAME
-- USER2_USERNAME, USER2_PASSWORD, USER2_HASH, USER2_SALT, USER2_FIRSTNAME, USER2_LASTNAME
+- USER1_USERNAME, USER1_PASSWORD, USER1_HASH, USER1_FIRSTNAME, USER1_LASTNAME
+- USER1_SALT (optional - if not provided, creates user with hash only)
+- USER2_USERNAME, USER2_PASSWORD, USER2_HASH, USER2_FIRSTNAME, USER2_LASTNAME
+- USER2_SALT (optional - if not provided, creates user with hash only)
 """
 
 import os
@@ -90,6 +92,33 @@ def create_user_with_hash(okta_domain: str, api_token: str, username: str,
                     "algorithm": "SHA-1",
                     "salt": salt_b64,
                     "saltOrder": "POSTFIX",
+                    "value": hash_b64
+                }
+            }
+        }
+    }
+
+    response = requests.post(url, headers=get_headers(api_token), json=payload)
+    return response
+
+
+def create_user_with_hash_no_salt(okta_domain: str, api_token: str, username: str,
+                                   first_name: str, last_name: str,
+                                   hash_b64: str) -> dict:
+    """Create a user in Okta with a SHA-1 hashed password without salt."""
+    url = f"https://{okta_domain}/api/v1/users?activate=true"
+
+    payload = {
+        "profile": {
+            "firstName": first_name,
+            "lastName": last_name,
+            "email": username,
+            "login": username
+        },
+        "credentials": {
+            "password": {
+                "hash": {
+                    "algorithm": "SHA-1",
                     "value": hash_b64
                 }
             }
@@ -192,7 +221,7 @@ def main():
     if not users:
         print("\nError: No user credentials found in .env file.")
         print("Please configure USER1_* and/or USER2_* variables.")
-        print("Required: USERNAME, PASSWORD, HASH, SALT")
+        print("Required: USERNAME, PASSWORD, HASH (SALT is optional)")
         sys.exit(1)
 
     # Separate users with and without salt
@@ -200,18 +229,8 @@ def main():
     users_without_salt = [u for u in users if not u['has_salt']]
 
     print(f"Found {len(users)} user(s) in .env file.")
-    print(f"  - {len(users_with_salt)} user(s) with salt (will be processed)")
-    print(f"  - {len(users_without_salt)} user(s) without salt (will be skipped)")
-
-    if users_without_salt:
-        print("\nSkipping users without salt:")
-        for user in users_without_salt:
-            print(f"  - {user['username']}")
-
-    if not users_with_salt:
-        print("\nError: No users with valid salt found. Nothing to process.")
-        sys.exit(1)
-
+    print(f"  - {len(users_with_salt)} user(s) with salt (SHA-1 hash with salt)")
+    print(f"  - {len(users_without_salt)} user(s) without salt (SHA-1 hash without salt)")
     print()
 
     # Step 1: Delete existing users
@@ -219,7 +238,7 @@ def main():
     print("Step 1: Checking and Deleting Existing Users")
     print("=" * 60)
 
-    for user in users_with_salt:
+    for user in users:
         print(f"\nChecking if user exists: {user['username']}")
         existing_user = find_user_by_login(okta_domain, api_token, user['username'])
 
@@ -236,8 +255,10 @@ def main():
     print("=" * 60)
 
     created_users = []
+
+    # Create users WITH salt
     for user in users_with_salt:
-        print(f"\nCreating user: {user['username']}")
+        print(f"\nCreating user (with salt): {user['username']}")
         print(f"  Name: {user['firstname']} {user['lastname']}")
         print(f"  Salt (base64): {user['salt']}")
         print(f"  Hash (base64): {user['hash']}")
@@ -247,6 +268,29 @@ def main():
             user['username'],
             user['firstname'], user['lastname'],
             user['salt'], user['hash']
+        )
+
+        if response.status_code == 200:
+            user_data = response.json()
+            print(f"  Created successfully!")
+            print(f"  User ID: {user_data.get('id')}")
+            print(f"  Status: {user_data.get('status')}")
+            created_users.append(user)
+        else:
+            print(f"  Failed to create user: {response.status_code}")
+            print(f"  Response: {response.text}")
+
+    # Create users WITHOUT salt
+    for user in users_without_salt:
+        print(f"\nCreating user (without salt): {user['username']}")
+        print(f"  Name: {user['firstname']} {user['lastname']}")
+        print(f"  Hash (base64): {user['hash']}")
+
+        response = create_user_with_hash_no_salt(
+            okta_domain, api_token,
+            user['username'],
+            user['firstname'], user['lastname'],
+            user['hash']
         )
 
         if response.status_code == 200:
@@ -278,7 +322,7 @@ def main():
             print(f"  Status: {status}")
             if auth_data.get('sessionToken'):
                 print(f"  Session Token: {auth_data.get('sessionToken')[:20]}...")
-            results.append({"user": user['username'], "success": True, "status": status})
+            results.append({"user": user['username'], "success": True, "status": status, "has_salt": user['has_salt']})
         else:
             print(f"  Result: FAILED")
             print(f"  HTTP Status: {response.status_code}")
@@ -287,21 +331,17 @@ def main():
                 print(f"  Error: {error_data.get('errorSummary', 'Unknown error')}")
             except:
                 print(f"  Response: {response.text}")
-            results.append({"user": user['username'], "success": False, "status": "FAILED"})
+            results.append({"user": user['username'], "success": False, "status": "FAILED", "has_salt": user['has_salt']})
 
     # Summary
     print("\n" + "=" * 60)
     print("Summary")
     print("=" * 60)
 
-    # Show skipped users
-    for user in users_without_salt:
-        print(f"[SKIP] {user['username']} - No salt provided")
-
-    # Show processed users
     for result in results:
         status_icon = "OK" if result['success'] else "FAIL"
-        print(f"[{status_icon}] {result['user']} - {result['status']}")
+        salt_info = "(with salt)" if result.get('has_salt') else "(no salt)"
+        print(f"[{status_icon}] {result['user']} {salt_info} - {result['status']}")
 
     print("=" * 60)
 
